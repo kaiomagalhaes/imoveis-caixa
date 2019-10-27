@@ -1,8 +1,8 @@
-const express = require("express");
-const path = require("path");
-const https = require("https");
 const cheerio = require("cheerio");
-const cache = require("memory-cache");
+const express = require("express");
+const https = require("https");
+const path = require("path");
+const redis = require("redis");
 const { WebClient } = require("@slack/web-api");
 
 require("dotenv").config();
@@ -18,6 +18,11 @@ const PROGRESS_LOG_INTERVAL_IN_SECONDS = parseInt(
 );
 const CITIES = process.env.CITIES.trim().split(",");
 const NEIGHBORHOODS = process.env.NEIGHBORHOODS.trim().split(",");
+const REMOVE_IGNORED_PROPERTIES =
+  `${process.env.REMOVE_IGNORED_PROPERTIES}`.toLowerCase() == "true";
+
+const REDIS_URL = process.env.REDIS_URL;
+const REDIS_IGNORED_PROPERTIES_KEY = "IGNORED_PROPERTIES";
 
 if (
   !SLACK_API_KEY ||
@@ -35,6 +40,16 @@ const PROPERTIES_URL =
   "https://venda-imoveis.caixa.gov.br/listaweb/Lista_imoveis_GO.htm?191651097";
 
 const slackClient = new WebClient(SLACK_API_KEY);
+const redisClient = redis.createClient({
+  url: REDIS_URL
+});
+
+const getIgnoredProperties = async () =>
+  new Promise(resolve => {
+    redisClient.smembers(REDIS_IGNORED_PROPERTIES_KEY, (err, members) =>
+      resolve(members)
+    );
+  });
 
 const parseTextCell = ($, tr, index) =>
   $(
@@ -54,30 +69,6 @@ const parseURLCell = ($, tr, index) =>
   )
     .find("a")
     .attr("href");
-
-// configure cache middleware
-let memCache = new cache.Cache();
-let cacheMiddleware = duration => {
-  return (req, res, next) => {
-    let key = "__express__" + req.originalUrl || req.url;
-    let cacheContent = memCache.get(key);
-    if (cacheContent) {
-      console.log(`Serving cached content for key: ${key}`);
-      res.send(cacheContent);
-      return;
-    } else {
-      console.log(`Purging cache!`);
-      memCache.clear();
-      res.sendResponse = res.send;
-      res.send = body => {
-        console.log(`Caching content for key: ${key}`);
-        memCache.put(key, body, duration * 1000);
-        res.sendResponse(body);
-      };
-      next();
-    }
-  };
-};
 
 const postPropertyToSlack = async (property, threadId) => {
   const text = `\`\`\`${property.description}\`\`\`
@@ -147,6 +138,14 @@ const postPropertiesToSlack = async properties => {
 const fetchProperties = async () => {
   console.log(`Fetching properties from ${PROPERTIES_URL}`);
 
+  let ignoredProperties = [];
+  try {
+    ignoredProperties = await getIgnoredProperties();
+  } catch (ex) {
+    console.error("Error fetching", ex);
+    ignoredProperties = [];
+  }
+
   return https.get(
     PROPERTIES_URL,
 
@@ -191,12 +190,22 @@ const fetchProperties = async () => {
             };
           })
           .get()
-          .filter(function({ city, neighborhood }) {
-            return (
-              CITIES.some(c => c === city) &&
-              ((FETCH_MISSING_INFO && !neighborhood) ||
-                NEIGHBORHOODS.some(n => n === neighborhood))
-            );
+          .filter(function({ address, amount, city, neighborhood, saleType }) {
+            const id = `${address}|${amount}|${saleType}`;
+            const isIgnored = REMOVE_IGNORED_PROPERTIES
+              ? ignoredProperties.includes(id)
+              : false;
+
+            if (isIgnored) {
+              console.log("IGNORED PROPERTIES", ignoredProperties, id);
+            }
+
+            const matchesCity = CITIES.some(c => c === city);
+            const matchesAddress =
+              (FETCH_MISSING_INFO && !neighborhood) ||
+              NEIGHBORHOODS.some(n => n === neighborhood);
+
+            return matchesCity && matchesAddress && !isIgnored;
           });
 
         $ = null;
@@ -209,6 +218,7 @@ const fetchProperties = async () => {
 };
 
 express()
+  .use(express.json())
   .get("/", (req, res) => {
     return res.send("ok");
   })
@@ -221,5 +231,16 @@ express()
       message: "Process started",
       data: {}
     });
+  })
+  .delete("/properties", async (req, res) => {
+    const { id } = req.body;
+
+    if (id) {
+      console.log("Ignoring property", id);
+
+      redisClient.sadd(REDIS_IGNORED_PROPERTIES_KEY, id);
+    }
+
+    res.send("ok");
   })
   .listen(PORT, () => console.log(`Listening on ${PORT}`));
