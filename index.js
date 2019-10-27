@@ -146,6 +146,10 @@ const fetchProperties = async () => {
     ignoredProperties = [];
   }
 
+  if (REMOVE_IGNORED_PROPERTIES) {
+    console.log(`Ignored properties`, ignoredProperties);
+  }
+
   return https.get(
     PROPERTIES_URL,
 
@@ -241,6 +245,10 @@ express()
       redisClient.sadd(REDIS_IGNORED_PROPERTIES_KEY, id);
     }
 
+    res.send("ok");
+  })
+  .delete("/clear", async (req, res) => {
+    redisClient.del(REDIS_IGNORED_PROPERTIES_KEY);
     res.send("ok");
   })
   .listen(PORT, () => console.log(`Listening on ${PORT}`));
