@@ -204,10 +204,11 @@ const fetchProperties = async () => {
               console.log("IGNORED PROPERTIES", ignoredProperties, id);
             }
 
+            console.log(CITIES, NEIGHBORHOODS )
             const matchesCity = CITIES.some(c => c === city);
-            const matchesAddress =
-              (FETCH_MISSING_INFO && !neighborhood) ||
-              NEIGHBORHOODS.some(n => n === neighborhood);
+            const matchesAddress = true
+//              (FETCH_MISSING_INFO && !neighborhood) ||
+//              NEIGHBORHOODS.some(n => n === neighborhood);
 
             return matchesCity && matchesAddress && !isIgnored;
           });
