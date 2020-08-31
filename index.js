@@ -1,11 +1,12 @@
+require("dotenv").config();
+
 const cheerio = require("cheerio");
 const express = require("express");
 const https = require("https");
-const path = require("path");
 const redis = require("redis");
+
 const { WebClient } = require("@slack/web-api");
 
-require("dotenv").config();
 
 const PORT = process.env.PORT || 5000;
 const SLACK_API_KEY = process.env.SLACK_API_KEY;
@@ -36,8 +37,7 @@ if (
   );
 }
 
-const PROPERTIES_URL =
-  "https://venda-imoveis.caixa.gov.br/listaweb/Lista_imoveis_GO.htm?191651097";
+const PROPERTIES_URL = "https://venda-imoveis.caixa.gov.br/listaweb/Lista_imoveis_GO.htm?191651097";
 
 const slackClient = new WebClient(SLACK_API_KEY);
 const redisClient = redis.createClient({
@@ -204,11 +204,8 @@ const fetchProperties = async () => {
               console.log("IGNORED PROPERTIES", ignoredProperties, id);
             }
 
-            console.log(CITIES, NEIGHBORHOODS )
             const matchesCity = CITIES.some(c => c === city);
-            const matchesAddress = true
-//              (FETCH_MISSING_INFO && !neighborhood) ||
-//              NEIGHBORHOODS.some(n => n === neighborhood);
+            const matchesAddress = true // (FETCH_MISSING_INFO && !neighborhood) || NEIGHBORHOODS.some(n => n === neighborhood);
 
             return matchesCity && matchesAddress && !isIgnored;
           });
